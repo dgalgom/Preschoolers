@@ -1,5 +1,5 @@
 # Preschoolers
-In this repository we show all the available material to reproduce the results presented in the article title "Unlocking the Potential of Active Play: A Systematic Review and Meta-Analysis on Enhancing Fundamental Movement Skills in Preschoolers with Insights into Effect Modifiers".
+In this repository we show all the available material to reproduce the results presented in the article titled "Unlocking the Potential of Active Play: A Systematic Review and Meta-Analysis on Enhancing Fundamental Movement Skills in Preschoolers with Insights into Effect Modifiers".
 
 For a better understanding of the dataset, next we are going to explain the data extracted from the original studies included in this systematic review.
 
