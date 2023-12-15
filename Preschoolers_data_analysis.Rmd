@@ -1,0 +1,1647 @@
+---
+title: "Preschoolers data analysis"
+author: "Gallardo-Gómez, D."
+date: '2023-02-02'
+output: html_document
+---
+
+### Load libraries and dataset
+
+```{r, message=FALSE, error=FALSE, warning=FALSE, results='hide'}
+library(tidyverse)
+library(tidybayes)
+library(brms)
+library(readxl)
+library(ggthemes)
+library(ggsci)
+library(cowplot)
+library(MBNMAdose)
+library(kableExtra)
+library(ggdist)
+library(patchwork)
+library(ggmcmc)
+library(ggridges)
+library(modelr)
+library(marginaleffects)
+```
+
+
+Load our dataset and check it.
+
+```{r, echo=FALSE}
+data <- read_xlsx(path = "/Users/danielgallardogomez/Downloads/preschoolars_data (1).xlsx",
+                  col_names = TRUE, na = "")
+```
+
+
+Let's make a bit of data wrangling to clean our data for subsequente meta-analysis models. First, we are going to filter our data by the outcome of interest (i.e., `Fundamental movement skills`). Second, we are going to rename our interventions. Third, we combined the scales that assessed fundamental movement skills in a similar way but had different names.
+
+```{r}
+# a bit of data wrangling
+data <- data %>%
+  filter(outcome == "Fundamental movement skills") %>%
+  mutate(int_2 = case_when(
+    int_2 == "structure playtime" ~ "Structured playtime",
+    int_2 == "no structure playtime" ~ "Non-structured playtime",
+    int_2 == "motor skills" | int_2 == "Motor skills" ~ "Motor skills"
+  ),
+  measure = ifelse(measure == "Standing broad jump", "standing_broad_Jump", measure),
+  measure = ifelse(measure == "Throwing", "throwing", measure),
+  measure = ifelse(measure == "handgrip_test", "handgrip", measure),
+  int_1 = factor(int_1, levels = c("control",
+                                   "active play"), labels = c("Control",
+                                                              "Active play")),
+  int_2 = factor(int_2, levels = c("Non-structured playtime",
+                                   "Structured playtime",
+                                   "Motor skills")))
+
+# what?
+glimpse(data)
+```
+
+
+### Standardisation process
+
+Guided by the National Institute for Health and Care Excellence (NICE) methodological guidelines, we used standardised mean change scores (i.e., **mean change from baseline**) as effect measure because of the use of different scales to assess our outcome. Thus, we standardised our estimates using an internal reference SD by scale. First of all, we observed how many scales were used.
+
+```{r, echo=FALSE}
+# Create a vector with all measurement tools
+vector <- unique(data$measure)
+
+# For example
+vector[2]
+```
+
+
+Neat. So, we are going to start calculating the arm-based effect sizes (i.e., $SMD$) and their $SE$ using the internal reference $SD$ for each scale. In this way, we'll obtain a column called `smd` (i.e., the rescaled SMD) and their corresponding $SEs$.
+
+```{r}
+# Create all scales ref SD
+
+## shuttle run 20 m (laps) ref SD
+shuttle_20_laps <- data %>% 
+  filter(measure == vector[1]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## agility ref SD
+agility <- data %>% 
+  filter(measure == vector[2]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## dynamic balance ref SD
+dynamic_balance <- data %>% 
+  filter(measure == vector[3]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## static balance ref SD
+static_balance <- data %>% 
+  filter(measure == vector[4]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## long jump ref SD
+long_jump <- data %>% 
+  filter(measure == vector[5]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## handgrip ref SD
+handgrip <- data %>% 
+  filter(measure == vector[6]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## single leg ref SD
+single_leg <- data %>% 
+  filter(measure == vector[7]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## hopping ref SD
+hopping <- data %>% 
+  filter(measure == vector[8]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## shuttle_20_stages ref SD
+shuttle_20_stages <- data %>% 
+  filter(measure == vector[9]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## shuttle run 10 x 4 m ref SD
+shuttle_104 <- data %>% 
+  filter(measure == vector[10]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## flexibility ref SD
+flexibility <- data %>% 
+  filter(measure == vector[11]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## cont jumps ref SD
+cont_jumps <- data %>% 
+  filter(measure == vector[12]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## throwing ref SD
+throwing <- data %>% 
+  filter(measure == vector[13]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+
+## beam walking ref SD
+beam_walking <- data %>% 
+  filter(measure == vector[14]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## running ref SD
+running <- data %>% 
+  filter(measure == vector[15]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## jumping ref SD
+jumping <- data %>% 
+  filter(measure == vector[16]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## catching ref SD
+catching <- data %>% 
+  filter(measure == vector[17]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## kicking ref SD
+kicking <- data %>% 
+  filter(measure == vector[18]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## dribling ref SD
+dribling <- data %>% 
+  filter(measure == vector[19]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## rolling ref SD
+rolling <- data %>% 
+  filter(measure == vector[20]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## total score 1 ref SD
+total_score_1 <- data %>% 
+  filter(measure == vector[21]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## sliding ref SD
+sliding <- data %>% 
+  filter(measure == vector[22]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## striking ref SD
+striking <- data %>% 
+  filter(measure == vector[23]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## bouncing ref SD
+bouncing <- data %>% 
+  filter(measure == vector[24]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## z_score ref SD
+z_score <- data %>% 
+  filter(measure == vector[25]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## coordination ref SD
+coordination <- data %>% 
+  filter(measure == vector[26]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## 20 m sprint ref SD
+sprint_20 <- data %>% 
+  filter(measure == vector[27]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## swimming ref SD
+swimming <- data %>% 
+  filter(measure == vector[28]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## 30 m sprint ref SD
+sprint_30 <- data %>% 
+  filter(measure == vector[29]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## push ref SD
+push <- data %>% 
+  filter(measure == vector[30]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## pull ref SD
+pull <- data %>% 
+  filter(measure == vector[31]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## ropping ref SD
+ropping <- data %>% 
+  filter(measure == vector[32]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## n kicking ref SD
+n_kicking <- data %>% 
+  filter(measure == vector[33]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## locomotor ref SD
+locomotor <- data %>% 
+  filter(measure == vector[34]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## object control ref SD
+object_control <- data %>% 
+  filter(measure == vector[35]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## total score 2 ref SD
+total_score_2 <- data %>% 
+  filter(measure == vector[36]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## gross motor skills ref SD
+gross_motor <- data %>% 
+  filter(measure == vector[37]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## balance ref SD
+balance <- data %>% 
+  filter(measure == vector[38]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## endurance ref SD
+endurance <- data %>% 
+  filter(measure == vector[39]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## 10 m run ref SD
+run_10 <- data %>% 
+  filter(measure == vector[40]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## standing broad jump ref SD
+standing_broad_jump <- data %>% 
+  filter(measure == vector[41]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## body flexion ref SD
+body_flexion <- data %>% 
+  filter(measure == vector[42]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## balance beam ref SD
+balance_beam <- data %>% 
+  filter(measure == vector[43]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## skip jump ref SD
+skip_jump <- data %>% 
+  filter(measure == vector[44]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## total FMS ref SD
+total_fms <- data %>% 
+  filter(measure == vector[45]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## aiming catching ref SD
+aiming_catching <- data %>% 
+  filter(measure == vector[46]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## total score 3 ref SD
+total_score_3 <- data %>% 
+  filter(measure == vector[47]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## shuttle run 10 x 5 m ref SD
+shuttle_105 <- data %>% 
+  filter(measure == vector[48]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## arm strength ref SD
+arm_strength <- data %>% 
+  filter(measure == vector[49]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## leg strength ref SD
+length_strength <- data %>% 
+  filter(measure == vector[50]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+
+## balance falls ref SD
+balance_falls <- data %>% 
+  filter(measure == vector[51]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+
+## sit and reach ref SD
+sit.and.reach <- data %>% 
+  filter(measure == vector[52]) %>%
+  distinct(studyID, sd_pooled) %>%
+  mutate(ref_sd = sum(sd_pooled)/n()) %>%
+  .$ref_sd %>% first() %>% as.numeric()
+```
+
+
+Indexed all SD references, let's rescale all effect sizes and SEs. The SEs of the mean change from baseline values were calculated using as empirical pre-post correlation value of 0.60 attending the clinical domain of our population (i.e., Pediatrics).
+
+```{r}
+data <- data %>%
+  mutate(smd = case_when(
+    measure == "long_jump" ~ mean_diff / long_jump,
+    measure == "running" ~ mean_diff / running,
+    measure == "throwing" ~ mean_diff / throwing,
+    measure == "flexibility" ~ mean_diff / flexibility,
+    measure == "hopping" ~ mean_diff / hopping,
+    measure == "handgrip" ~ mean_diff / handgrip,
+    measure == "balance" ~ mean_diff / balance,
+    measure == "beam_walking" ~ mean_diff / beam_walking,
+    measure == "catching" ~ mean_diff / catching,
+    measure == "kicking" ~ mean_diff / kicking,
+    measure == "shuttle_run_20m_laps" ~ mean_diff / shuttle_20_laps,
+    measure == "shuttle_run_10x5" ~ mean_diff / shuttle_105,
+    measure == "20_sprint" ~ mean_diff / sprint_20,
+    measure == "agility" ~ mean_diff / agility,
+    measure == "cont_jumps" ~ mean_diff / cont_jumps,
+    measure == "jumping" ~ mean_diff / jumping,
+    measure == "locomotor" ~ mean_diff / locomotor,
+    measure == "object_control" ~ mean_diff / object_control,
+    measure == "shuttle_run_10x4" ~ mean_diff / shuttle_104,
+    measure == "sliding" ~ mean_diff / sliding,
+    measure == "standing_broad_Jump" ~ mean_diff / standing_broad_jump,
+    measure == "Aiming_catching" ~ mean_diff / aiming_catching,
+    measure == "arm_strength" ~ mean_diff / arm_strength,
+    measure == "balance_falls" ~ mean_diff / balance_falls,
+    measure == "leg_strength" ~ mean_diff / length_strength,
+    measure == "total_score_3" ~ mean_diff / total_score_3,
+    measure == "10 meters run" ~ mean_diff / run_10,
+    measure == "30_sprint" ~ mean_diff / sprint_30,
+    measure == "Balance beam" ~ mean_diff / balance_beam,
+    measure == "Body flexion" ~ mean_diff / body_flexion,
+    measure == "bouncing" ~ mean_diff / bouncing,
+    measure == "coordination" ~ mean_diff / coordination,
+    measure == "dribling" ~ mean_diff / dribling,
+    measure == "dynamic_balance" ~ mean_diff / dynamic_balance,
+    measure == "endurance" ~ mean_diff / endurance,
+    measure == "gross_motor" ~ mean_diff / gross_motor,
+    measure == "n_kicking" ~ mean_diff / n_kicking,
+    measure == "pull" ~ mean_diff / pull,
+    measure == "push" ~ mean_diff / push,
+    measure == "rolling" ~ mean_diff / rolling,
+    measure == "ropping" ~ mean_diff / ropping,
+    measure == "shuttle_run_20m_stages" ~ mean_diff / shuttle_20_stages,
+    measure == "single_leg" ~ mean_diff / single_leg,
+    measure == "Skip jump" ~ mean_diff / skip_jump,
+    measure == "static_balance" ~ mean_diff / static_balance,
+    measure == "striking" ~ mean_diff / striking,
+    measure == "swimming" ~ mean_diff / swimming,
+    measure == "total_FMS" ~ mean_diff / total_fms,
+    measure == "total_score_1" ~ mean_diff / total_score_1,
+    measure == "total_score_2" ~ mean_diff / total_score_2,
+    measure == "z_score" ~ mean_diff / z_score,
+    measure == "sit_and_reach" ~ mean_diff / sit.and.reach
+  ),
+  smd_se = case_when(
+    measure == "long_jump" ~ se_ped / long_jump,
+    measure == "running" ~ se_ped / running,
+    measure == "throwing" ~ se_ped / throwing,
+    measure == "flexibility" ~ se_ped / flexibility,
+    measure == "hopping" ~ se_ped / hopping,
+    measure == "handgrip" ~ se_ped / handgrip,
+    measure == "balance" ~ se_ped / balance,
+    measure == "beam_walking" ~ se_ped / beam_walking,
+    measure == "catching" ~ se_ped / catching,
+    measure == "kicking" ~ se_ped / kicking,
+    measure == "shuttle_run_20m_laps" ~ se_ped / shuttle_20_laps,
+    measure == "shuttle_run_10x5" ~ se_ped / shuttle_105,
+    measure == "20_sprint" ~ se_ped / sprint_20,
+    measure == "agility" ~ se_ped / agility,
+    measure == "cont_jumps" ~ se_ped / cont_jumps,
+    measure == "jumping" ~ se_ped / jumping,
+    measure == "locomotor" ~ se_ped / locomotor,
+    measure == "object_control" ~ se_ped / object_control,
+    measure == "shuttle_run_10x4" ~ se_ped / shuttle_104,
+    measure == "sliding" ~ se_ped / sliding,
+    measure == "standing_broad_Jump" ~ se_ped / standing_broad_jump,
+    measure == "Aiming_catching" ~ se_ped / aiming_catching,
+    measure == "arm_strength" ~ se_ped / arm_strength,
+    measure == "balance_falls" ~ se_ped / balance_falls,
+    measure == "leg_strength" ~ se_ped / length_strength,
+    measure == "total_score_3" ~ se_ped / total_score_3,
+    measure == "10 meters run" ~ se_ped / run_10,
+    measure == "30_sprint" ~ se_ped / sprint_30,
+    measure == "Balance beam" ~ se_ped / balance_beam,
+    measure == "Body flexion" ~ se_ped / body_flexion,
+    measure == "bouncing" ~ se_ped / bouncing,
+    measure == "coordination" ~ se_ped / coordination,
+    measure == "dribling" ~ se_ped / dribling,
+    measure == "dynamic_balance" ~ se_ped / dynamic_balance,
+    measure == "endurance" ~ se_ped / endurance,
+    measure == "gross_motor" ~ se_ped / gross_motor,
+    measure == "n_kicking" ~ se_ped / n_kicking,
+    measure == "pull" ~ se_ped / pull,
+    measure == "push" ~ se_ped / push,
+    measure == "rolling" ~ se_ped / rolling,
+    measure == "ropping" ~ se_ped / ropping,
+    measure == "shuttle_run_20m_stages" ~ se_ped / shuttle_20_stages,
+    measure == "single_leg" ~ se_ped / single_leg,
+    measure == "Skip jump" ~ se_ped / skip_jump,
+    measure == "static_balance" ~ se_ped / static_balance,
+    measure == "striking" ~ se_ped / striking,
+    measure == "swimming" ~ se_ped / swimming,
+    measure == "total_FMS" ~ se_ped / total_fms,
+    measure == "total_score_1" ~ se_ped / total_score_1,
+    measure == "total_score_2" ~ se_ped / total_score_2,
+    measure == "z_score" ~ se_ped / z_score,
+    measure == "sit_and_reach" ~ se_ped / sit.and.reach
+  ))
+```
+
+```{r, echo=FALSE}
+# removing doubtful scales from our dataset
+data <- data %>%
+  filter(measure != "z_score")
+```
+
+
+Now, we have to change the direction of the effect sizes that indicated an improvement in fundamental movement skills when a reduction in the mean response happened. 
+
+```{r}
+data$smd[data$lower_better == "YES"] <- -1 * data$smd[data$lower_better == "YES"]
+```
+
+Perfect. Let's do an exploratory data analysis (EDA) of these rescaled effect sizes to detect potential extreme data points (*aka*, potential outliers or influential cases). These data points are considered extreme when have a SMD greater than 2 SDs, or very high standard errors.
+
+
+### Participants' and interventions' characteristics
+
+This meta-analysis included `r data %>% group_by(studyID) %>% summarise(n = n()) %>% nrow()` studies (`r nrow(data)` effect sizes) involving `r data %>% distinct(studyID, n) %>% summarise(total = sum(n)) %>% as.numeric()` preschoolers. The average sample age was `r round(mean(data$age), 2)` ± `r round(sd(data$age), 2)`. At overall level, there are `r data %>% group_by(int_1) %>% summarise(n = n()) %>% .[1, 2] %>% as.numeric()` effect sizes corresponding to active play intervention, and `r data %>% group_by(int_1) %>% summarise(n = n()) %>% .[2, 2] %>% as.numeric()` effect sizes corresponding to control. At intervention-specific level, motor skills intervention (`r data %>% group_by(int_2) %>% summarise(n = n()) %>% .[1, 2] %>% as.numeric()` effect sizes) had a median duration of `r data %>% filter(int_2 == "Motor skills") %>% .$duration %>% median(na.rm = TRUE)` weeks (range = `r data %>% filter(int_2 == "Motor skills") %>% .$duration %>% range(na.rm = TRUE) %>% .[1]` to `r data %>% filter(int_2 == "Motor skills") %>% .$duration %>% range(na.rm = TRUE) %>% .[2]` weeks), a median frequency of `r data %>% filter(int_2 == "Motor skills") %>% .$sessions %>% median(na.rm = TRUE)` days per week (range = `r data %>% filter(int_2 == "Motor skills") %>% .$sessions %>% range(na.rm = TRUE) %>% .[1]` to `r data %>% filter(int_2 == "Motor skills") %>% .$sessions %>% range(na.rm = TRUE) %>% .[2]` days per week), and a median time per session of `r data %>% filter(int_2 == "Motor skills") %>% .$time_ses %>% median(na.rm = TRUE)` min (range = `r data %>% filter(int_2 == "Motor skills") %>% .$time_ses %>% range(na.rm = TRUE) %>% .[1]` to `r data %>% filter(int_2 == "Motor skills") %>% .$time_ses %>% range(na.rm = TRUE) %>% .[2]` min). Structured playtime (`r data %>% group_by(int_2) %>% summarise(n = n()) %>% .[3, 2] %>% as.numeric()` effect sizes) had a median duration of `r data %>% filter(int_2 == "Structured playtime") %>% .$duration %>% median(na.rm = TRUE)` weeks (range = `r data %>% filter(int_2 == "Structured playtime") %>% .$duration %>% range(na.rm = TRUE) %>% .[1]` to `r data %>% filter(int_2 == "Structured playtime") %>% .$duration %>% range(na.rm = TRUE) %>% .[2]` weeks), a median frequency of `r data %>% filter(int_2 == "Structured playtime") %>% .$sessions %>% median(na.rm = TRUE)` days per week (range = `r data %>% filter(int_2 == "Structured playtime") %>% .$sessions %>% range(na.rm = TRUE) %>% .[1]` to `r data %>% filter(int_2 == "Structured playtime") %>% .$sessions %>% range(na.rm = TRUE) %>% .[2]` days per week), and a median time per session of `r data %>% filter(int_2 == "Structured playtime") %>% .$time_ses %>% median(na.rm = TRUE)` min (range = `r data %>% filter(int_2 == "Structured playtime") %>% .$time_ses %>% range(na.rm = TRUE) %>% .[1]` to `r data %>% filter(int_2 == "Structured playtime") %>% .$time_ses %>% range(na.rm = TRUE) %>% .[2]` min). Non-structured playtime had `r data %>% group_by(int_2) %>% summarise(n = n()) %>% .[2, 2] %>% as.numeric()` effect sizes.
+
+
+### Exploratory Data Analysis
+
+Let's visualise these extreme data points, and consider removing these effect sizes in the posterior sensitivity analysis.
+
+```{r, echo=FALSE}
+data %>%
+  ggplot(aes(x = smd, y = smd_se)) +
+  geom_point(aes(size = n, col = int_2), alpha = 0.4) +
+  ggrepel::geom_label_repel(data = data %>% filter(smd_se > 2 | smd > 2), aes(label = studyID)) + # high SEs or extreme SMD
+  labs(x = "Effect size (SMD)",
+       y = "Standard error associated with SMD",
+       col = "Intervention type",
+       size = "Sample size") +
+  scale_color_lancet() +
+  scale_x_continuous(breaks = seq(-5, 8, 0.5)) +
+  scale_y_continuous(breaks = seq(0, 5, 1)) +
+  theme_minimal()
+```
+
+
+Possible extreme data points that could influence in the pooled effect size of physical activity interventions may be **Wasenius, 2017**, **Alhassan, 2012**, **Branje, 2022**, **Matvienko, 2010**, and **Zhou, 2014**. 
+
+We also compute the median and 95% CI of the effect sizes adjusting by region. We can see that there are differences in the effect of active play in the outcome of interest between continents.
+
+```{r}
+data %>%
+  filter(int_1 == "Active play") %>%
+  group_by(region) %>%
+  median_qi(smd)
+```
+
+
+Because we are interested in whether or not a dose-response relationship between energy expenditure and improvements in fundamental movement skills could exists, we plot the effect sizes across all active play doses. We should differentiate between the studies that included their interventions within the play time determined by the educational curriculum, and those which add their interventions to the normal playtime of preschoolers.
+
+```{r, echo=FALSE, fig.height=10, fig.width=8}
+# interventions included in the educational curriculum
+included_plot <- data %>%
+  filter(int_1 == "Active play" & Included == "included") %>%
+  ggplot(aes(x = dose_calc, y = smd)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Energy Expenditure (METs-min/day)",
+       y = "Effect size (SMD)",
+       title = "Interventions included in the educational curriculum") +
+  theme_minimal() +
+  panel_border() +
+  scale_x_continuous(breaks = seq(0, 500, 50)) +
+  scale_y_continuous(breaks = seq(-2, 6, 1)) +
+  theme(plot.title = element_text(face = "bold"))
+
+# additional interventions to their normal playtime
+not_plot <- data %>%
+  filter(int_1 == "Active play" & Included == "not") %>%
+  ggplot(aes(x = dose_calc, y = smd)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Energy Expenditure (METs-min/day)",
+       y = "Effect size (SMD)",
+       title = "Interventions not included in the educational curriculum") +
+  theme_minimal() +
+  panel_border() +
+  scale_x_continuous(breaks = seq(0, 500, 50)) +
+  scale_y_continuous(breaks = seq(-2, 6, 1)) +
+  theme(plot.title = element_text(face = "bold"))
+
+# combined plot
+included_plot / not_plot
+```
+
+
+We observed that there is a paucity of data in several dose points that may difficult the interpolation of part of the dose-response association. In addition, we see that there is no a clearly defined dose-response relationship between extra energy expenditure and fundamental movement skills gains, which may mean that there is no benefits to do more than their normal playtime (however, that playtime could vary between regions, so it would be interesting to meta-analyse these data).
+
+
+
+### Overall level: active play *vs.* control
+
+#### Fitting our model
+
+```{r, results='hide', message=FALSE, warning=FALSE, error=FALSE}
+# for reproducibility sake
+set.seed(02022023)
+
+# multilevel meta-analysis model without predictors
+model <- brm(smd | se(smd_se) ~ 1 + int_1 + (1 | studyID),
+             data = data,
+             control = list(adapt_delta = 0.99),
+             iter = 4000, warmup = 1000)
+```
+
+
+#### Convergence analysis
+
+First, let's check if our model reached the convergence. We first check the mixing of the Markov Chain Monte-Carlo simulations, and we then observe the Potential Scale Reduction Factor ($\hat{R}$ parameter) which should be smaller than 1.05.
+
+```{r}
+# good mixing of our predictive chains
+plot(model)
+
+# observe our Rhat value below 1.05
+summary(model)
+```
+
+
+All model parameters indicated that our model reached the convergence. Let's continue plotting the model estimates for our intercept (active play response), control response and the between-study heterogeneity.
+
+```{r}
+mcmc_plot(model)
+```
+
+
+A moderate pooled effect size was achieved by active play interventions. It is also important to highlight the considerable between-study heterogeneity suggesting that using a random-effects model was right.
+
+Next, we are going to extract the group-level (*random*) effects of each study level, that is, the estimated deviation of each study’s “true” effect size from the pooled effect. 
+
+```{r}
+ranef(model)
+```
+
+
+
+#### Marginal population-level means
+
+Next, we are going to estimate the marginal effect of the included interventions at overall level (i.e., active play and control). To understand what we are calculating when refer to marginal effects, let's define them: "marginal effects are the global/population effect across clusters on average in which random offsets are incorporated into the estimate". We then average/ marginalise/ integrate the average population-level outcomes across existing random effects. **Here we calculate predictions for** `int_1 = c("Active play", "Control")` **within each of the existing clusters (i.e., studies). We then collapse them into averages for each level of **`int_1` **variable**.
+
+```{r}
+predictions(model,
+            newdata = datagrid(int_1 = unique(data$int_1),
+                                                 studyID = unique),
+            by = "int_1",
+            re_formula = NULL)
+```
+
+
+Nice! Active play presented a predicted response of `r predictions(model, newdata = datagrid(int_1 = unique(data$int_1), studyID = unique), by = "int_1", re_formula = NULL) %>% as.data.frame() %>% .$predicted %>% .[1] %>% round(., 2)` (95% CrI `r predictions(model, newdata = datagrid(int_1 = unique(data$int_1), studyID = unique), by = "int_1", re_formula = NULL) %>% as.data.frame() %>% .$conf.low %>% .[1] %>% round(., 2)` to `r predictions(model, newdata = datagrid(int_1 = unique(data$int_1), studyID = unique), by = "int_1", re_formula = NULL) %>% as.data.frame() %>% .$conf.high %>% .[1] %>% round(., 2)`). However, control intervention also achieved a statistically significant marginal effect. Let's plot this marginal mean responses.
+
+```{r}
+# Prediction model 
+marginal_preds <- predictions(model,
+                              newdata = datagrid(int_1 = unique(data$int_1),
+                                                 studyID = unique),
+                              by = "int_1",
+                              re_formula = NULL) %>% 
+  posteriordraws()
+
+# Marginal population-level means plot
+marginal_preds %>%
+  ggplot(aes(x = draw, fill = factor(int_1))) +
+  stat_halfeye(slab_alpha = 0.5) +
+  labs(x = "Marginal population-level means",
+       fill = "Intervention",
+       y = "Density") +
+  scale_fill_lancet() +
+  theme_minimal() +
+  panel_border() +
+  scale_y_continuous(limits = c(0, 1)) +
+  scale_x_continuous(breaks = seq(-1, 1, 0.1))
+```
+
+
+
+#### Average Treatment Effect (ATE) calculation
+
+The average treatment effect (ATE) for our continuous outcome is the difference between the two averages when `int_1 == "Active play"` and `int_1 == "Control"`, after somehow incorporating all the random cluster-specific offsets. We then incorporate this information by averaging/ marginalising/ integrating the average population-level outcomes across existing random effects.
+
+```{r}  
+# Marginal treatment effect (or global population level effect)
+comparisons(model,
+            variables = "int_1",
+            re_formula = NULL) %>%
+  tidy()
+```
+
+
+Here it is! Our marginal active play *vs.* control effect. Let's plot it!
+
+```{r}
+# save posterior draws
+marginal_ate <- comparisons(model,
+                            variables = "int_1",
+                            re_formula = NULL) %>%
+  posteriordraws() 
+  
+# plot
+marginal_ate %>%
+  group_by(drawid) %>%
+  summarise(draw = mean(draw)) %>%
+  ggplot(aes(x = draw)) + 
+  stat_halfeye(fill = "gold", alpha = 0.9) +
+  labs(x = "Average Active play Effect (AP - C)",
+       y = "Density") +
+  theme_minimal() +
+  panel_border() 
+```
+
+
+#### Small-study effects bias
+
+Let's explore through funnel plot visualization and Egger's test checking.
+
+```{r, echo=FALSE}
+### FUNNEL PLOT ### 
+library(metafor)
+library(meta)
+m.gen <- metagen(TE = smd, 
+                 seTE = smd_se, 
+                 studlab = studyID, 
+                 data = data, 
+                 sm = "SMD", 
+                 fixed = FALSE, 
+                 random = TRUE,
+                 method.tau = "REML", 
+                 hakn = TRUE, 
+                 title = "Preeschoolers meta-analysis")
+
+## Funnel plot
+funnel.meta(m.gen,
+            xlim = c(-6, 10),
+            studlab = FALSE)
+```
+
+```{r, echo=FALSE, eval=FALSE}
+## extract funnel plot figure
+## Funnel plot
+tiff("funnel.tiff", height = 6, width = 6, res = 300, units = "in")
+funnel.meta(m.gen,
+            xlim = c(-6, 10),
+            studlab = FALSE)
+dev.off()
+```
+
+It seems that our funnel plot provide us with a few "red flags" that indicate that our results may be affected by publication bias.
+
+Let's check if this asymmetry is statistically meaningful through Egger's regression test.
+
+```{r}
+## Egger's test
+data %>%
+  mutate(y = smd / smd_se,
+         x = 1 / smd_se) %>%
+  lm(y ~ x, data = .) %>%
+  summary()
+```
+
+```{r, echo=FALSE}
+egger <- data %>%
+  mutate(y = smd / smd_se,
+         x = 1 / smd_se) %>%
+  lm(y ~ x, data = .)
+```
+
+We see that the intercept of our regression model is `r round(as.numeric(egger$coefficients[1]), 2)`, which is significantly larger than zero, and indicates that the data in the funnel plot is indeed asymmetrical.
+
+
+### Intervention-specific level: structured playtime *vs.* non-structured playtime *vs.* motor skills
+
+#### Fitting our model
+
+```{r, results='hide', message=FALSE, warning=FALSE, error=FALSE}
+# for reproducibility sake
+set.seed(14022023)
+
+# multilevel meta-analysis model without predictors
+model.int <- brm(smd | se(smd_se) ~ 1 + int_2 + (1 | studyID),
+             data = data,
+             family = gaussian(),
+             control = list(adapt_delta = 0.99),
+             iter = 4000, warmup = 1000)
+```
+
+
+The fact that Bayesian methods create an actual sampling distribution for our parameters of interest means that we can calculate exact probabilities that the effect size or the between-study heterogeneity are larger or smaleer than some specific value. Imagine that found in previous literature that, if effects of an intervention are below SMD = 0.20, they are not meaningful anymore. We could therefore calculate the probability that the true overall effect in our meta-analysis is smaller than SMD = 0.20, based on our model. This can be done by looking at the empirical cumulative distribution function (ECDF). The ECDF lets us select one specific value *X*, adn returns the probability of some value *x* being smaller than *X*, based on provided data. The ECDF of the specific-interventions' posterior distribution in our meta-analysis can be seen below.
+
+```{r}
+# extract the posterior draws of our selected model
+draws <- posterior_samples(model.int, c("^b", "^sd"))
+
+# change the variables' names
+names(draws) <- c("smd_non_structured", "smd_structured", "smd_motor_skills", "tau")
+
+# Probability of non-structured playtime effect size to be null
+smd.ecdf <- ecdf(draws$smd_non_structured) # create the function
+smd.ecdf(0) # and a probability of 2.38% to be below 0.1
+
+# Probability of structured playtime effect size to be null
+smd.ecdf <- ecdf(draws$smd_structured) # create the function
+smd.ecdf(0) # and a probability of 31.58% to be below 0.1
+
+# Probability of motor skill effect size to be null
+smd.ecdf <- ecdf(draws$smd_motor_skills) # create the function
+smd.ecdf(0) # and a probability of 14.67% to be below 0.1
+```
+
+
+Next, we are going to extract the group-level (*random*) effects of each study level, that is, the estimated deviation of each study’s “true” effect size from the pooled effect. 
+
+```{r}
+ranef(model.int)
+```
+
+
+### Generating our Bayesian forest plot
+
+```{r, echo=FALSE}
+# extract the posterior draws of our selected model
+draws <- posterior_samples(model.int, c("^b", "^sd"))
+
+# change the variables' names
+names(draws) <- c("smd_non_structured", "smd_structured", "smd_motor_skills", "tau")
+
+# calculating the posterior effect expectation of the non-control intervention adding the beta coefficient to the intercept
+draws <- draws %>% 
+  mutate(smd_structured = smd_non_structured + smd_structured,
+         smd_motor_skills = smd_non_structured + smd_motor_skills)
+
+
+# plotting the posterior distribution of our pooled effect and between-study heterogeneity
+(ggplot(aes(x = smd_non_structured), data = draws) +
+  stat_halfeye() +
+  labs(x = expression(italic("SMD")),
+       y = element_blank(),
+       title = "Non-structured playtime effect distribution") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold")) +
+  scale_x_continuous(limits = c(-0.25, 1.25),
+                     breaks = seq(-0.5, 1.5, 0.25))) / 
+  (ggplot(aes(x = smd_structured), data = draws) +
+  stat_halfeye() +
+  labs(x = expression(italic("SMD")),
+       y = element_blank(),
+       title = "Structured playtime effect distribution") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold")) +
+  scale_x_continuous(limits = c(-0.25, 1.25),
+                     breaks = seq(-0.5, 1.5, 0.25))) /
+  (ggplot(aes(x = smd_motor_skills), data = draws) +
+  stat_halfeye() +
+  labs(x = expression(italic("SMD")),
+       y = element_blank(),
+       title = "Motor skills effect distribution") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold")) +
+  scale_x_continuous(limits = c(-0.25, 1.25),
+                     breaks = seq(-0.5, 1.5, 0.25))) / 
+  (ggplot(aes(x = tau), data = draws) +
+  stat_halfeye() +
+  labs(x = expression(italic(tau)),
+       y = element_blank(),
+       title = "Between-study heterogeneity distribution") +
+  theme_minimal() +
+    theme(plot.title = element_text(face = "bold")) +
+  scale_x_continuous(limits = c(-0.25, 1.25),
+                     breaks = seq(-0.5, 1.5, 0.25)))
+```
+
+
+Let's plot the model-based estimates of our studies.
+
+```{r, fig.height=16, fig.width=14, echo=FALSE}
+# computation of the pooled SMD saving the posterior draws of our model
+model.data <- comparisons(model,
+                            variables = "int_1",
+                            re_formula = NULL) %>%
+  posteriordraws() %>%
+  group_by(drawid) %>%
+  summarise(draw = mean(draw)) %>% 
+  mutate(studyID = "Pooled SMD") %>%
+  select(draw, studyID)
+
+# extract the posterior draws of our selected model
+draws.overall <- posterior_samples(model, c("^b", "^sd"))
+
+# change the variables' names
+names(draws.overall) <- c("smd_control", "smd_ap", "tau")
+
+# calculating the posterior effect expectation of the non-control intervention adding the beta coefficient to the intercept
+draws.overall <- draws.overall %>%
+  mutate(smd_ap = smd_control + smd_ap)
+```
+
+```{r, echo=FALSE, eval=FALSE}
+predictions(model) %>%
+  posteriordraws() %>%
+  select(draw, studyID) %>%
+  rbind(model.data) %>%
+  mutate(studyID = factor(studyID),
+         studyID = reorder(studyID, draw)) %>%
+  ggplot(aes(x = draw, y = relevel(studyID, "Pooled SMD", after = Inf))) +
+  geom_vline(xintercept = 0, col = "darkred") +
+  geom_vline(xintercept = model.data %>% mean_qi(draw) %>% .[, c(2, 3)] %>% as.numeric(), 
+             color = "grey", linetype = 2) +
+  geom_vline(xintercept = mean(model.data$draw), 
+             color = "grey", size = 1) +
+  ggridges::geom_density_ridges(fill = "grey50", alpha = .7, rel_min_height = 0.01, scale = 1) + # plotting the posterior densities
+  geom_pointinterval(aes(x = draw,
+                 xmin = .lower,
+                 xmax = .upper, y = studyID), data = predictions(model) %>%
+                   posteriordraws() %>%
+                   select(draw, studyID) %>%
+  rbind(model.data) %>%
+               group_by(studyID) %>% median_qi(draw), shape = 18, size = 1) +
+  geom_point(aes(x = draw, # plotting the point estimates
+                 y = studyID), data = predictions(model) %>%
+                   posteriordraws() %>%
+               select(draw, studyID) %>%
+  rbind(model.data) %>%
+               group_by(studyID) %>% median_qi(draw), shape = ifelse(predictions(model) %>%
+                   posteriordraws() %>%
+                     select(draw, studyID) %>%
+  rbind(model.data) %>%
+               group_by(studyID) %>% median_qi(draw) %>% .$studyID == "Pooled SMD", 18, 19), size = ifelse(predictions(model) %>%
+                   posteriordraws() %>%
+                     select(draw, studyID) %>%
+  rbind(model.data) %>%
+               group_by(studyID) %>% median_qi(draw) %>% .$studyID == "Pooled SMD", 4, 2)) +
+  geom_text(data = predictions(model) %>% # plotting the numerical data 
+                   posteriordraws() %>%
+              select(draw, studyID) %>%
+  rbind(model.data) %>%
+               group_by(studyID) %>% median_qi(draw) %>% mutate_if(is.numeric, round, 2) %>% mutate(studyID = factor(studyID),
+         studyID = reorder(studyID, draw)),
+    aes(label = glue::glue("{draw} [{.lower} to {.upper}]"), 
+        x = Inf), hjust = "inward") +
+  labs(y = "", x = "Expectation of the SMD posterior distributions") +
+  theme_minimal() +
+  panel_border() +
+  scale_x_continuous(limits = c(-1, 2),
+                     breaks = seq(-1, 2, 0.5))
+```
+
+
+
+#### Marginal population-level means
+
+Next, we are going to estimate the marginal effect of the included interventions at intervention-specific level. To understand what we are calculating when refer to marginal effects, let's define them: "marginal effects are the global/population effect across clusters on average in which random offsets are incorporated into the estimate". We then average/ marginalise/ integrate the average population-level outcomes across existing random effects. **Here we calculate predictions for** `int_2 = c("Non-structured playtime", "Structured playtime", "Motor skills")` **within each of the existing clusters (i.e., studies). We then collapse them into averages for each level of **`int_2` **variable**.
+
+```{r}
+predictions(model.int,
+            newdata = datagrid(int_2 = unique(data$int_2),
+                                                 studyID = unique),
+            by = "int_2",
+            re_formula = NULL)
+```
+
+```{r, echo=FALSE}
+# Prediction model 
+marginal_preds <- predictions(model.int,
+                              newdata = datagrid(int_2 = unique(data$int_2),
+                                                 studyID = unique),
+                              by = "int_2",
+                              re_formula = NULL) %>% 
+  posteriordraws()
+
+# Marginal population-level means plot
+marginal_preds %>%
+  ggplot(aes(x = draw, fill = factor(int_2))) +
+  stat_halfeye(slab_alpha = 0.4) +
+  labs(x = "Marginal population-level means",
+       fill = "Intervention",
+       y = "Density") +
+  scale_fill_lancet() +
+  theme_minimal() +
+  panel_border() +
+  scale_y_continuous(limits = c(0, 1)) +
+  scale_x_continuous(breaks = seq(-1, 1, 0.1))
+```
+
+
+
+#### Average Treatment Effect (ATE) calculation
+
+The average treatment effect (ATE) for our continuous outcome is the difference between the two averages when `int_2 == "Structured playtime"` or `int_2 == "Motor skills"` and `int_2 == "Non-structured playtime"`, after somehow incorporating all the random cluster-specific offsets. We then incorporate this information by averaging/ marginalising/ integrating the average population-level outcomes across existing random effects.
+
+```{r}  
+# Marginal treatment effect (or global population level effect)
+comparisons(model.int,
+            variables = "int_2",
+            re_formula = NULL) %>%
+  tidy()
+```
+
+
+Here they are! Our marginal effects referred to structured playtime *vs.* non-structured playtime and motor skills *vs.* non-structured playtime. Let's plot it!
+
+```{r}
+# save posterior draws
+marginal_ate <- comparisons(model.int,
+                            variables = "int_2",
+                            re_formula = NULL) %>%
+  posteriordraws()
+  
+# plot
+marginal_ate %>%
+  group_by(drawid, contrast) %>%
+  summarise(draw = mean(draw)) %>%
+  ggplot(aes(x = draw)) + 
+  stat_halfeye(fill = "gold", alpha = 0.9) +
+  facet_grid(~ contrast) +
+  labs(x = "Average Intervention Effect",
+       y = "Density") +
+  theme_minimal() +
+  panel_border()
+```
+
+
+
+### How potential effect modifiers affect the interventions' effect estimates?
+
+Now, we are going to inspect how the introduction of some effect modifiers in our meta-analysis model could influence the effect estimates.
+
+```{r, results='hide', message=FALSE, warning=FALSE, error=FALSE}
+# for reproducibility sake
+set.seed(14022023)
+
+# multilevel meta-analysis model including predictors
+model.int.1 <- brm(smd | se(smd_se) ~ 1 + int_2 + region + Included + (1 | studyID),
+             data = data,
+             control = list(adapt_delta = 0.99),
+             iter = 4000, warmup = 1000)
+```
+
+
+#### Convergence analysis
+
+Let's make a posterior predictive check to inspect how the posterior draws fit the observed data. Additionally, we observe that the $\hat{R}$ values are below 1.05, indicating that a specific model estimate reached the convergence.
+
+```{r, echo=FALSE}
+# posterior predictive check
+pp_check(model.int.1) + theme(text = element_text(family = "Times"))
+
+# model summary output
+summary(model.int.1)
+```
+
+
+All model parameters indicated that our model reached the convergence. Let's continue plotting the model estimates for our intercept, the rest of interventions, the rest of predictors, and the between-study heterogeneity.
+
+```{r}
+mcmc_plot(model.int.1) + theme(text = element_text(family = "Times"))
+```
+
+
+Nice. Next, we are going to try response our research questions about how affects that the intervention was included or not in the educational curriculum of the institution, or even if the interventions applied in different continents had different effects. 
+
+
+
+#### Differences between continents
+
+Let's check whether interventions based on active play had different effects on different continents. Below we numerically present the data.
+
+```{r, warning=FALSE}
+predictions(model.int.1,
+            newdata = datagrid(int_2 = unique(data$int_2),
+                                                 studyID = unique,
+                               region = c("Europe", "Asia", "America", "Africa", "Oceania"),
+                               Included = c("included", "not")),
+            by = c("region"),
+            re_formula = NULL) %>% posteriordraws() %>%
+  group_by(drawid, region) %>% 
+  summarize(draw = mean(draw)) %>% 
+  ggplot(aes(x = draw, y = factor(region), fill = after_stat(x > 0))) +
+  stat_halfeye(slab_alpha = 1) + 
+  labs(x = "Marginal population-level means",
+       y = "",
+       fill = "Interval included 0") +
+  theme_minimal() +
+  panel_border() +
+  scale_fill_manual(values = c("tomato", "grey50")) +
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = seq(-2, 2.5, 0.5),
+                     limits = c(-2, 2.5))
+```
+
+```{r, echo=FALSE}
+predictions(model.int.1,
+            newdata = datagrid(int_2 = unique(data$int_2),
+                                                 studyID = unique,
+                               region = c("Europe", "Asia", "America", "Africa", "Oceania"),
+                               Included = c("included", "not")),
+            by = c("region"),
+            re_formula = NULL) %>%
+  posteriordraws() %>%
+  group_by(region) %>%
+  median_qi(draw) # 95% quantile interval
+```
+
+
+It seems that active play-based interventions had different effects between continents. These interventions had the greatest effects in America and Asia. It would be interesting to check what protocols were used in these countries and compare them with those used in the other countries to detect potential intervention components that could influence the outcome of interest.
+
+
+
+#### Is it more effective including the intervention within or outside the educational curriculum?
+
+Let's predict the responses for each intervention applied within and outside the curriculum of the school.
+
+```{r, warning=FALSE}
+predictions(model.int.1,
+            newdata = datagrid(int_2 = unique(data$int_2),
+                                                 studyID = unique,
+                               Included = c("included", "not")),
+            by = c("int_2", "Included"),
+            re_formula = NULL) %>% posteriordraws() %>%
+  group_by(drawid, int_2, Included) %>% 
+  summarize(draw = mean(draw)) %>%
+  mutate(Included = ifelse(Included == "included", "Included", "Not included")) %>%
+  ggplot(aes(x = draw, y = factor(int_2), fill = after_stat(x > 0))) +
+  stat_halfeye(slab_alpha = 1) + 
+  labs(x = "Marginal population-level means",
+       y = "",
+       fill = "Interval included 0") +
+  facet_wrap(~ Included) +
+  theme_minimal() +
+  panel_border() +
+  scale_fill_manual(values = c("black", "grey65")) +
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = seq(-1.5, 2, 0.5),
+                     limits = c(-1.25, 2))
+```
+
+```{r, echo=FALSE}
+predictions(model.int.1,
+            newdata = datagrid(int_2 = unique(data$int_2),
+                                                 studyID = unique,
+                               Included = c("included", "not")),
+            by = c("int_2", "Included"),
+            re_formula = NULL) %>% posteriordraws() %>%
+  mutate(Included = ifelse(Included == "included", "Intervention included in the educational curriculum", "Intervention not included in the educational curriculum")) %>%
+  group_by(int_2, Included) %>% 
+  median_qi(draw) # 95% quantile interval
+```
+
+
+Interestingly, the interventions included in the educational curriculum presented greater effects than those not included, showing statistically significant effects in motor skills and structured playtime interventions that were included in the school curriculum in contrast with those not included.  
+
+
+
+#### What about considering all predictors? 
+
+Let's check it.
+
+```{r, warning=FALSE, fig.height=10, fig.width=15}
+
+predictions(model.int.1,
+            newdata = datagrid(int_2 = unique(data$int_2),
+                                                 studyID = unique,
+                               region = c("Europe", "Asia", "America", "Africa", "Oceania"),
+                               Included = c("included", "not")),
+            by = c("region", "int_2", "Included"),
+            re_formula = NULL) %>% posteriordraws() %>%
+  mutate(Included = ifelse(Included == "included", "Included", "Not included")) %>%
+  group_by(drawid, int_2, region, Included) %>% 
+  summarize(draw = mean(draw)) %>% 
+  ggplot(aes(x = draw, y = factor(int_2), fill = after_stat(x > 0))) +
+  stat_halfeye(slab_alpha = 1) + 
+  labs(x = "Marginal population-level means (SMD)",
+       y = "",
+       fill = "Interval included 0") +
+  facet_grid(Included ~ region) +
+  theme_minimal() +
+  panel_border() +
+  scale_fill_manual(values = c("black", "grey65")) +
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = seq(-1, 2, 0.5),
+                     limits = c(-1, 2))
+```
+
+```{r, echo=FALSE}
+predictions(model.int.1,
+            newdata = datagrid(int_2 = unique(data$int_2),
+                                                 studyID = unique,
+                               region = c("Europe", "Asia", "America", "Africa", "Oceania"),
+                               Included = c("included", "not")),
+            by = c("region", "int_2", "Included"),
+            re_formula = NULL) %>% posteriordraws() %>%
+  group_by(region, int_2, Included) %>%
+  median_qi(draw) %>% # 95% quantile interval
+  as.data.frame()
+```
+
+We observe that in America and Asia, the interventions which were included in the school curriculum showed the greatest effects on FMS outcomes. However, the opposite happens in Europe, where the interventions performed outside the curriculum of the institution were more effective. Africa and Oceania did not show differences between both types.
+
+
+
+```{r, echo=FALSE}
+# between-heterogeneity values
+frame <- rbind(posterior_summary(model)["sd_studyID__Intercept", ],
+  posterior_summary(model.int)["sd_studyID__Intercept", ],
+  posterior_summary(model.int.1)["sd_studyID__Intercept", ])
+
+rownames(frame) <- c("Main model (overall level)",
+                     "Main model (intervention-specific level)",
+                     "Model with covariates")
+```
+
+                     
+## Sensitivity analyses
+
+### Overall level: active play *vs.* control
+
+#### Fitting our model
+
+```{r, results='hide', message=FALSE, warning=FALSE, error=FALSE}
+# for reproducibility sake
+set.seed(02022023)
+
+low_risk_studies <- c("Tan, 2016 (1)",
+                      "Latorre-Román, 2018",
+                      "Bai, 2022",
+                      "Jarraya, 2022",
+                      "Puder, 2011",
+                      "Wang, 2023")
+
+# multilevel meta-analysis model without predictors
+model.sens <- brm(smd | se(smd_se) ~ 1 + int_1 + (1 | studyID),
+             data = data %>%
+             filter(studyID %in% low_risk_studies),
+             control = list(adapt_delta = 0.99),
+             iter = 4000, warmup = 1000)
+```
+
+
+Let's reinspect the presence of small-study effects.
+
+```{r, echo=FALSE}
+### Egger's test ### 
+data %>%
+  filter(studyID %in% low_risk_studies) %>%
+  mutate(y = smd / smd_se,
+         x = 1 / smd_se) %>%
+  lm(y ~ x, data = .) %>%
+  summary()
+```
+
+
+#### Marginal population-level means
+
+Next, we are going to estimate the marginal effect of the included interventions at overall level (i.e., active play and control). To understand what we are calculating when refer to marginal effects, let's define them: "marginal effects are the global/population effect across clusters on average in which random offsets are incorporated into the estimate". We then average/ marginalise/ integrate the average population-level outcomes across existing random effects. **Here we calculate predictions for** `int_1 = c("Active play", "Control")` **within each of the existing clusters (i.e., studies). We then collapse them into averages for each level of **`int_1` **variable**.
+
+```{r}
+predictions(model.sens,
+            newdata = datagrid(int_1 = unique(data$int_1),
+                                                 studyID = unique),
+            by = "int_1",
+            re_formula = NULL)
+```
+
+
+Nice! Active play presented a predicted response of `r predictions(model, newdata = datagrid(int_1 = unique(data$int_1), studyID = unique), by = "int_1", re_formula = NULL) %>% as.data.frame() %>% .$predicted %>% .[1] %>% round(., 2)` (95% CrI `r predictions(model, newdata = datagrid(int_1 = unique(data$int_1), studyID = unique), by = "int_1", re_formula = NULL) %>% as.data.frame() %>% .$conf.low %>% .[1] %>% round(., 2)` to `r predictions(model, newdata = datagrid(int_1 = unique(data$int_1), studyID = unique), by = "int_1", re_formula = NULL) %>% as.data.frame() %>% .$conf.high %>% .[1] %>% round(., 2)`). However, control intervention also achieved a statistically significant marginal effect. Let's plot this marginal mean responses.
+
+```{r}
+# Prediction model 
+marginal_preds <- predictions(model.sens,
+                              newdata = datagrid(int_1 = unique(data$int_1),
+                                                 studyID = unique),
+                              by = "int_1",
+                              re_formula = NULL) %>% 
+  posteriordraws()
+
+# Marginal population-level means plot
+marginal_preds %>%
+  ggplot(aes(x = draw, fill = factor(int_1))) +
+  stat_halfeye(slab_alpha = 0.5) +
+  labs(x = "Marginal population-level means",
+       fill = "Intervention",
+       y = "Density") +
+  scale_fill_lancet() +
+  theme_minimal() +
+  panel_border() +
+  scale_y_continuous(limits = c(0, 1)) +
+  scale_x_continuous(breaks = seq(-1, 1, 0.1))
+```
+
+
+
+#### Average Treatment Effect (ATE) calculation
+
+The average treatment effect (ATE) for our continuous outcome is the difference between the two averages when `int_1 == "Active play"` and `int_1 == "Control"`, after somehow incorporating all the random cluster-specific offsets. We then incorporate this information by averaging/ marginalising/ integrating the average population-level outcomes across existing random effects.
+
+```{r}  
+# Marginal treatment effect (or global population level effect)
+comparisons(model.sens,
+            variables = "int_1",
+            re_formula = NULL) %>%
+  tidy()
+```
+
+
+Here it is! Our marginal active play *vs.* control effect. Let's plot it!
+
+```{r}
+# save posterior draws
+marginal_ate <- comparisons(model.sens,
+                            variables = "int_1",
+                            re_formula = NULL) %>%
+  posteriordraws() 
+  
+# plot
+marginal_ate %>%
+  group_by(drawid) %>%
+  summarise(draw = mean(draw)) %>%
+  ggplot(aes(x = draw)) + 
+  stat_halfeye(fill = "gold", alpha = 0.9) +
+  labs(x = "Average Active play Effect (AP - C)",
+       y = "Density") +
+  theme_minimal() +
+  panel_border() 
+```
+
+
+
+### Intervention-specific level: structured playtime *vs.* non-structured playtime *vs.* motor skills
+
+#### Fitting our model
+
+```{r, results='hide', message=FALSE, warning=FALSE, error=FALSE}
+# for reproducibility sake
+set.seed(14022023)
+
+# multilevel meta-analysis model without predictors
+model.int <- brm(smd | se(smd_se) ~ 1 + int_2 + (1 | studyID),
+             data = data %>%
+               filter(studyID %in% low_risk_studies),
+             family = gaussian(),
+             control = list(adapt_delta = 0.99),
+             iter = 4000, warmup = 1000)
+```
+
+
+The fact that Bayesian methods create an actual sampling distribution for our parameters of interest means that we can calculate exact probabilities that the effect size or the between-study heterogeneity are larger or smaleer than some specific value. Imagine that found in previous literature that, if effects of an intervention are below SMD = 0.20, they are not meaningful anymore. We could therefore calculate the probability that the true overall effect in our meta-analysis is smaller than SMD = 0.20, based on our model. This can be done by looking at the empirical cumulative distribution function (ECDF). The ECDF lets us select one specific value *X*, adn returns the probability of some value *x* being smaller than *X*, based on provided data. The ECDF of the specific-interventions' posterior distribution in our meta-analysis can be seen below.
+
+```{r}
+# extract the posterior draws of our selected model
+draws <- posterior_samples(model.int, c("^b", "^sd"))
+
+# change the variables' names
+names(draws) <- c("smd_non_structured", "smd_structured", "smd_motor_skills", "tau")
+
+# Probability of non-structured playtime effect size to be null
+smd.ecdf <- ecdf(draws$smd_non_structured) # create the function
+smd.ecdf(0) # and a probability of 26.73% to be below 0.1
+
+# Probability of structured playtime effect size to be null
+smd.ecdf <- ecdf(draws$smd_structured) # create the function
+smd.ecdf(0) # and a probability of 28.40% to be below 0.1
+
+# Probability of motor skill effect size to be null
+smd.ecdf <- ecdf(draws$smd_motor_skills) # create the function
+smd.ecdf(0) # and a probability of 3.03% to be below 0.1
+```
+
+
+Next, we are going to extract the group-level (*random*) effects of each study level, that is, the estimated deviation of each study’s “true” effect size from the pooled effect. 
+
+```{r}
+ranef(model.int)
+```
+
+
+### Generating our Bayesian forest plot (sensitivity analyses)
+
+```{r}
+# extract the posterior draws of our selected model
+draws <- posterior_samples(model.int, c("^b", "^sd"))
+
+# change the variables' names
+names(draws) <- c("smd_non_structured", "smd_structured", "smd_motor_skills", "tau")
+
+# calculating the posterior effect expectation of the non-control intervention adding the beta coefficient to the intercept
+draws <- draws %>% 
+  mutate(smd_structured = smd_non_structured + smd_structured,
+         smd_motor_skills = smd_non_structured + smd_motor_skills)
+
+
+# plotting the posterior distribution of our pooled effect and between-study heterogeneity
+(ggplot(aes(x = smd_non_structured), data = draws) +
+  stat_halfeye() +
+  labs(x = expression(italic("SMD")),
+       y = element_blank(),
+       title = "Non-structured playtime effect distribution") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold")) +
+  scale_x_continuous(limits = c(-0.25, 1.25),
+                     breaks = seq(-0.5, 1.5, 0.25))) / 
+  (ggplot(aes(x = smd_structured), data = draws) +
+  stat_halfeye() +
+  labs(x = expression(italic("SMD")),
+       y = element_blank(),
+       title = "Structured playtime effect distribution") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold")) +
+  scale_x_continuous(limits = c(-0.25, 1.25),
+                     breaks = seq(-0.5, 1.5, 0.25))) /
+  (ggplot(aes(x = smd_motor_skills), data = draws) +
+  stat_halfeye() +
+  labs(x = expression(italic("SMD")),
+       y = element_blank(),
+       title = "Motor skills effect distribution") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold")) +
+  scale_x_continuous(limits = c(-0.25, 1.25),
+                     breaks = seq(-0.5, 1.5, 0.25))) / 
+  (ggplot(aes(x = tau), data = draws) +
+  stat_halfeye() +
+  labs(x = expression(italic(tau)),
+       y = element_blank(),
+       title = "Between-study heterogeneity distribution") +
+  theme_minimal() +
+    theme(plot.title = element_text(face = "bold")) +
+  scale_x_continuous(limits = c(-0.25, 1.25),
+                     breaks = seq(-0.5, 1.5, 0.25)))
+```
+
+
+Let's plot the model-based estimates of our studies.
+
+```{r, fig.height=16, fig.width=14, echo=FALSE}
+# computation of the pooled SMD saving the posterior draws of our model
+model.data <- comparisons(model.sens,
+                            variables = "int_1",
+                            re_formula = NULL) %>%
+  posteriordraws() %>%
+  group_by(drawid) %>%
+  summarise(draw = mean(draw)) %>% 
+  mutate(studyID = "Pooled SMD") %>%
+  select(draw, studyID)
+
+# extract the posterior draws of our selected model
+draws.overall <- posterior_samples(model, c("^b", "^sd"))
+
+# change the variables' names
+names(draws.overall) <- c("smd_control", "smd_ap", "tau")
+
+# calculating the posterior effect expectation of the non-control intervention adding the beta coefficient to the intercept
+draws.overall <- draws.overall %>%
+  mutate(smd_ap = smd_control + smd_ap)
+
+
+# forest plot
+predictions(model.sens) %>%
+  posteriordraws() %>%
+  select(draw, studyID) %>%
+  rbind(model.data) %>%
+  mutate(studyID = factor(studyID),
+         studyID = reorder(studyID, draw)) %>%
+  ggplot(aes(x = draw, y = relevel(studyID, "Pooled SMD", after = Inf))) +
+  geom_vline(xintercept = 0, col = "darkred") +
+  geom_vline(xintercept = model.data %>% mean_qi(draw) %>% .[, c(2, 3)] %>% as.numeric(), 
+             color = "grey", linetype = 2) +
+  geom_vline(xintercept = mean(model.data$draw), 
+             color = "grey", size = 1) +
+  ggridges::geom_density_ridges(fill = "grey50", alpha = .7, rel_min_height = 0.01, scale = 1) + # plotting the posterior densities
+  geom_pointinterval(aes(x = draw,
+                 xmin = .lower,
+                 xmax = .upper, y = studyID), data = predictions(model.sens) %>%
+                   posteriordraws() %>%
+                   select(draw, studyID) %>%
+  rbind(model.data) %>%
+               group_by(studyID) %>% median_qi(draw), shape = 18, size = 1) +
+  geom_point(aes(x = draw, # plotting the point estimates
+                 y = studyID), data = predictions(model.sens) %>%
+                   posteriordraws() %>%
+               select(draw, studyID) %>%
+  rbind(model.data) %>%
+               group_by(studyID) %>% median_qi(draw), shape = ifelse(predictions(model.sens) %>%
+                   posteriordraws() %>%
+                     select(draw, studyID) %>%
+  rbind(model.data) %>%
+               group_by(studyID) %>% median_qi(draw) %>% .$studyID == "Pooled SMD", 18, 19), size = ifelse(predictions(model.sens) %>%
+                   posteriordraws() %>%
+                     select(draw, studyID) %>%
+  rbind(model.data) %>%
+               group_by(studyID) %>% median_qi(draw) %>% .$studyID == "Pooled SMD", 4, 2)) +
+  geom_text(data = predictions(model.sens) %>% # plotting the numerical data 
+                   posteriordraws() %>%
+              select(draw, studyID) %>%
+  rbind(model.data) %>%
+               group_by(studyID) %>% median_qi(draw) %>% mutate_if(is.numeric, round, 2) %>% mutate(studyID = factor(studyID),
+         studyID = reorder(studyID, draw)),
+    aes(label = glue::glue("{draw} [{.lower} to {.upper}]"), 
+        x = Inf), hjust = "inward") +
+  labs(y = "", x = "Expectation of the SMD posterior distributions") +
+  theme_minimal() +
+  panel_border() +
+  scale_x_continuous(limits = c(-1, 2),
+                     breaks = seq(-1, 2, 0.5))
+```
+
+
+
+#### Marginal population-level means
+
+Next, we are going to estimate the marginal effect of the included interventions at intervention-specific level. To understand what we are calculating when refer to marginal effects, let's define them: "marginal effects are the global/population effect across clusters on average in which random offsets are incorporated into the estimate". We then average/ marginalise/ integrate the average population-level outcomes across existing random effects. **Here we calculate predictions for** `int_2 = c("Non-structured playtime", "Structured playtime", "Motor skills")` **within each of the existing clusters (i.e., studies). We then collapse them into averages for each level of **`int_2` **variable**.
+
+```{r}
+predictions(model.int,
+            newdata = datagrid(int_2 = unique(data$int_2),
+                                                 studyID = unique),
+            by = "int_2",
+            re_formula = NULL)
+```
+
+```{r, echo=FALSE}
+# Prediction model 
+marginal_preds <- predictions(model.int,
+                              newdata = datagrid(int_2 = unique(data$int_2),
+                                                 studyID = unique),
+                              by = "int_2",
+                              re_formula = NULL) %>% 
+  posteriordraws()
+
+# Marginal population-level means plot
+marginal_preds %>%
+  ggplot(aes(x = draw, fill = factor(int_2))) +
+  stat_halfeye(slab_alpha = 0.4) +
+  labs(x = "Marginal population-level means",
+       fill = "Intervention",
+       y = "Density") +
+  scale_fill_lancet() +
+  theme_minimal() +
+  panel_border() +
+  scale_y_continuous(limits = c(0, 1)) +
+  scale_x_continuous(breaks = seq(-1, 1, 0.1))
+```
+
+
+
+#### Average Treatment Effect (ATE) calculation
+
+The average treatment effect (ATE) for our continuous outcome is the difference between the two averages when `int_2 == "Structured playtime"` or `int_2 == "Motor skills"` and `int_2 == "Non-structured playtime"`, after somehow incorporating all the random cluster-specific offsets. We then incorporate this information by averaging/ marginalising/ integrating the average population-level outcomes across existing random effects.
+
+```{r}  
+# Marginal treatment effect (or global population level effect)
+comparisons(model.int,
+            variables = "int_2",
+            re_formula = NULL) %>%
+  tidy()
+```
+
+
+Here they are! Our marginal effects referred to structured playtime *vs.* non-structured playtime and motor skills *vs.* non-structured playtime. Let's plot it!
+
+```{r}
+# save posterior draws
+marginal_ate <- comparisons(model.int,
+                            variables = "int_2",
+                            re_formula = NULL) %>%
+  posteriordraws()
+  
+# plot
+marginal_ate %>%
+  group_by(drawid, contrast) %>%
+  summarise(draw = mean(draw)) %>%
+  ggplot(aes(x = draw)) + 
+  stat_halfeye(fill = "gold", alpha = 0.9) +
+  facet_grid(~ contrast) +
+  labs(x = "Average Intervention Effect",
+       y = "Density") +
+  theme_minimal() +
+  panel_border() 
+```
+
+
+```{r}
+sessionInfo()
+```
